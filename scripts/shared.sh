@@ -1,5 +1,34 @@
 #!/usr/bin/env bash
 
+# General functions
+get_cmd_recursive() {
+    local pid=$(tmux display-message -p '#{pane_pid}')
+    local cmd=$(tmux display-message -p '#{pane_current_command}')
+
+    # Docker/ssh was called directly
+    if [[ $cmd = "docker"]] || [[ $cmd = "ssh" ]] || [[ $cmd = "sshpass" ]]; then
+        local cmd=$(pgrep -flaP $pid)
+        local pid=$(echo $cmd | cut -d' ' -f1)
+        local cmd = ${cmd//$pid}
+        echo "$cmd"
+        return
+    fi
+
+    # Recursively search for last command running
+    local depth=0
+    while [ -n "$pid" ] && [ "$depth" -lt "5" ]; do
+        local prevcmd=${cmd//$pid}
+        local cmd=$(pgrep -flaP $pid | tail -n1)
+        local pid=$(echo $cmd | cut -d' ' -f1)
+        ((++depth))
+    done
+    
+    # return command
+    echo "$prevcmd"
+}
+
+
+# Tmux functions
 get_tmux_option() {
 	local option=$1
 	local default_value=$2
@@ -17,6 +46,8 @@ set_tmux_option() {
 	tmux set-option -gq "$option" "$value"
 }
 
+
+# SSH functions
 parse_ssh_port() {
   # If there is a port get it
   local port=$(echo $1|grep -Eo '\-p ([0-9]+)'|sed 's/-p //')
@@ -55,43 +86,56 @@ get_ssh_user() {
 }
 
 get_remote_info() {
-  local command=$1
+    local query=$1
+    local command=$2
 
-  # First get the current pane command pid to get the full command with arguments
-  local cmd=$({ pgrep -flaP `tmux display-message -p "#{pane_pid}"` ; ps -o command -p `tmux display-message -p "#{pane_pid}"` ; } | xargs -I{} echo {} | grep ssh | sed -E 's/^[0-9]*[[:blank:]]*ssh //')
+    # get arguments from command
+    local args=$(echo $command | sed -E 's/^[0-9]*[[:blank:]]*ssh //')
 
-  local port=$(parse_ssh_port "$cmd")
+    # Get host, user, port
+    local port=$(parse_ssh_port "$args")
+    local args=$(echo $args|sed 's/\-p '"$port"'//g')
+    local user=$(echo $args | awk '{print $NF}'|cut -f1 -d@)
+    local host=$(echo $args | awk '{print $NF}'|cut -f2 -d@)
+    if [ $user == $host ]; then
+        local user=$(get_ssh_user $host)
+    fi
 
-  local cmd=$(echo $cmd|sed 's/\-p '"$port"'//g')
-
-  local user=$(echo $cmd | awk '{print $NF}'|cut -f1 -d@)
-  local host=$(echo $cmd | awk '{print $NF}'|cut -f2 -d@)
-
-  if [ $user == $host ]; then
-    local user=$(get_ssh_user $host)
-  fi
-
-  case "$1" in
-    "whoami")
-      echo $user
-      ;;
-    "hostname")
-      echo $host
-      ;;
-    *)
-      echo "$user@$host:$port"
-      ;;
-  esac
+    # React to correct query
+    case "$query" in
+        "whoami")
+            echo $user
+            ;;
+        "hostname")
+            echo $host
+            ;;
+        *)
+            echo "$user@$host:$port"
+            ;;
+    esac
 }
 
-get_info() {
-  # Get current pane command
-  local cmd=$(tmux display-message -p "#{pane_current_command}")
 
-  # If command is ssh do some magic
-  if [ $cmd = "ssh" ] || [ $cmd = "sshpass" ]; then
-    echo $(get_remote_info $1)
-  else
-    echo $($1)
-  fi
+# Docker functions
+get_docker_info() {
+    local pid=$1
+
+    # TODO
+    echo 'hi'
+}
+
+
+# Main function
+get_info() {
+    # Get current pane command and pid
+    local cmd=$(get_cmd_recursive)
+
+    # Check if command is ssh/docker
+    if [[ $cmd = "ssh"* ]]; then
+        echo $(get_remote_info $1 $cmd)
+    elif [[ $cmd = "docker"* ]]; then
+        echo $(get_docker_info $1 $cmd)
+    else
+        echo $($1)
+    fi
 }
