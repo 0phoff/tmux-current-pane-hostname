@@ -6,18 +6,17 @@ get_cmd_recursive() {
     local cmd=$(tmux display-message -p '#{pane_current_command}')
 
     # Docker/ssh was called directly
-    if [[ $cmd = "docker"]] || [[ $cmd = "ssh" ]] || [[ $cmd = "sshpass" ]]; then
+    if [[ $cmd = "docker" ]] || [[ $cmd = "ssh" ]] || [[ $cmd = "sshpass" ]]; then
         local cmd=$(pgrep -flaP $pid)
         local pid=$(echo $cmd | cut -d' ' -f1)
-        local cmd = ${cmd//$pid}
-        echo "$cmd"
+        echo "${cmd//$pid }"
         return
     fi
 
     # Recursively search for last command running
     local depth=0
     while [ -n "$pid" ] && [ "$depth" -lt "5" ]; do
-        local prevcmd=${cmd//$pid}
+        local prevcmd=${cmd//$pid }
         local cmd=$(pgrep -flaP $pid | tail -n1)
         local pid=$(echo $cmd | cut -d' ' -f1)
         ((++depth))
@@ -125,14 +124,15 @@ get_docker_info() {
     local container=$(echo $cmd | grep -oe '--name \w*' | cut -d' ' -f2)
 
     # No docker name given or tty not connected
-    if [ -z "$container" ] || [ -z "$(docker inspect --format='{{.Config.Tty}}' $container)" ]; then
+    if [ -z "$container" ] || [ "$(docker inspect --format='{{.Config.Tty}}' $container)" = "false" ]; then
         echo $($1)
+        return
     fi
 
     # Get container info
     local host=$(docker inspect --format='{{.Config.Hostname}}' $container) 
     local user=$(docker inspect --format='{{.Config.User}}' $container)
-    if [-z "$user" ]; then
+    if [ -z "$user" ]; then
         local user='root'
     fi
 
@@ -158,9 +158,9 @@ get_info() {
 
     # Check if command is ssh/docker
     if [[ $cmd = "ssh"* ]]; then
-        echo $(get_remote_info $1 $cmd)
+        echo $(get_remote_info $1 "$cmd")
     elif [[ $cmd = "docker"* ]]; then
-        echo $(get_docker_info $1 $cmd)
+        echo $(get_docker_info $1 "$cmd")
     else
         echo $($1)
     fi
