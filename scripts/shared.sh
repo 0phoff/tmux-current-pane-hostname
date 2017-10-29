@@ -118,10 +118,36 @@ get_remote_info() {
 
 # Docker functions
 get_docker_info() {
-    local pid=$1
+    local query=$1
+    local cmd=$2
 
-    # TODO
-    echo 'hi'
+    # Get container name
+    local container=$(echo $cmd | grep -oe '--name \w*' | cut -d' ' -f2)
+
+    # No docker name given or tty not connected
+    if [ -z "$container" ] || [ -z "$(docker inspect --format='{{.Config.Tty}}' $container)" ]; then
+        echo $($1)
+    fi
+
+    # Get container info
+    local host=$(docker inspect --format='{{.Config.Hostname}}' $container) 
+    local user=$(docker inspect --format='{{.Config.User}}' $container)
+    if [-z "$user" ]; then
+        local user='root'
+    fi
+
+    # react to query
+    case "$query" in
+        "whoami")
+            echo "$user"
+            ;;
+        "hostname")
+            echo "$host"
+            ;;
+        *)
+            echo "$container:$user@$host"
+            ;;
+    esac
 }
 
 
